@@ -1,4 +1,5 @@
 package com.loadtest.adapter.in.web.dto;
 
-public class StartRunResponse {
-}
+import java.util.UUID;
+
+public record StartRunResponse(UUID runId) {}

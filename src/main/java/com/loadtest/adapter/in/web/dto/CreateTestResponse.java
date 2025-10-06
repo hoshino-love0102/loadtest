@@ -1,4 +1,5 @@
 package com.loadtest.adapter.in.web.dto;
 
-public class CreateTestResponse {
-}
+import java.util.UUID;
+
+public record CreateTestResponse(UUID testId) {}

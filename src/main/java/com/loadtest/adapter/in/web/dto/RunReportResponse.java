@@ -1,4 +1,6 @@
 package com.loadtest.adapter.in.web.dto;
 
-public class RunReportResponse {
-}
+public record RunReportResponse(
+        String state,
+        TestReportResponse report
+) {}
