@@ -1,17 +1,33 @@
 package com.loadtest.adapter.in.web.dto.request;
 
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
+import com.loadtest.domain.model.TestDefinition;
 
+import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 public record TestDefinitionCreateRequest(
-        @NotBlank String name,
-        @NotBlank String method,
-        @NotBlank String url,
+        String name,
+        String method,
+        String url,
         Map<String, Object> headers,
         Object body,
-        @Min(1) int vus,
-        @Min(1) int durationSec,
+        int vus,
+        int durationSec,
         Integer rampUpSec
-) {}
+) {
+    public TestDefinition toDomain() {
+        return new TestDefinition(
+                null,
+                name,
+                method,
+                url,
+                headers,
+                body,
+                vus,
+                durationSec,
+                rampUpSec,
+                null
+        );
+    }
+}
