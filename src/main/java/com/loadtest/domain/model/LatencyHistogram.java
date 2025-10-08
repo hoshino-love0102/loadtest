@@ -1,5 +1,7 @@
 package com.loadtest.domain.model;
 
+import java.util.concurrent.atomic.LongAdder;
+
 public class LatencyHistogram {
 
     private static final long MAX1 = 5_000;
@@ -10,33 +12,38 @@ public class LatencyHistogram {
     private static final long STEP2 = 100;
     private static final long STEP3 = 1_000;
 
-    private final long[] buckets; // counts
-    private long total;
+    private final LongAdder[] buckets; // counts
+    private final LongAdder total = new LongAdder();
 
     public LatencyHistogram() {
         int b1 = (int) (MAX1 / STEP1);
         int b2 = (int) ((MAX2 - MAX1) / STEP2);
         int b3 = (int) ((MAX3 - MAX2) / STEP3);
-        this.buckets = new long[b1 + b2 + b3 + 1];
-        this.total = 0;
+
+        this.buckets = new LongAdder[b1 + b2 + b3 + 1];
+        for (int i = 0; i < buckets.length; i++) {
+            buckets[i] = new LongAdder();
+        }
     }
 
     public void record(long latencyMs) {
-        buckets[indexOf(latencyMs)]++;
-        total++;
+        buckets[indexOf(latencyMs)].increment();
+        total.increment();
     }
 
     public long totalCount() {
-        return total;
+        return total.sum();
     }
 
     public long percentile(double p) {
-        if (total == 0) return 0;
-        long rank = (long) Math.ceil(p * total);
+        long t = total.sum();
+        if (t == 0) return 0;
+
+        long rank = (long) Math.ceil(p * t);
         long cum = 0;
 
         for (int i = 0; i < buckets.length; i++) {
-            cum += buckets[i];
+            cum += buckets[i].sum();
             if (cum >= rank) {
                 return lowerBoundMs(i);
             }
