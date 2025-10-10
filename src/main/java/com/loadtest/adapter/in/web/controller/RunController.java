@@ -76,4 +76,43 @@ public class RunController {
                 codes
         );
     }
+
+    @GetMapping("/runs/{runId}/timeseries")
+    public RunTimeSeriesResponse timeseries(@PathVariable UUID runId) {
+        var samples = runUseCase.getTimeSeries(runId);
+
+        var out = new java.util.ArrayList<RunSampleResponse>(samples.size());
+
+        com.loadtest.domain.model.RunSample prev = null;
+        for (var s : samples) {
+            var rep = s.report();
+
+            double rps = 0.0;
+            if (prev != null) {
+                long delta = rep.totalRequests() - prev.report().totalRequests();
+                long dt = java.time.Duration.between(prev.at(), s.at()).toMillis();
+                if (dt <= 0) dt = 1000;
+                rps = (double) delta / ((double) dt / 1000.0);
+            }
+
+            double failRate = (rep.totalRequests() == 0)
+                    ? 0.0
+                    : (double) rep.failCount() / (double) rep.totalRequests();
+
+            out.add(new RunSampleResponse(
+                    s.at(),
+                    rep.totalRequests(),
+                    rep.successCount(),
+                    rep.failCount(),
+                    rep.avgLatencyMs(),
+                    rep.p50(),
+                    rep.p95(),
+                    rep.p99(),
+                    rps,
+                    failRate
+            ));
+            prev = s;
+        }
+        return new RunTimeSeriesResponse(out);
+    }
 }
