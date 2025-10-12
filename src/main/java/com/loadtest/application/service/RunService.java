@@ -18,6 +18,8 @@ public class RunService implements RunUseCase {
     private final LoadTestRunner loadTestRunner;
     private final TestReportRepository reportRepository;
     private final RunSampleRepository sampleRepository;
+    private final TargetValidator targetValidator;
+
     private final ScheduledExecutorService sampler = Executors.newScheduledThreadPool(1);
     private final ConcurrentHashMap<UUID, ScheduledFuture<?>> samplingTasks = new ConcurrentHashMap<>();
 
@@ -26,19 +28,22 @@ public class RunService implements RunUseCase {
                       RunRuntimeStore runtimeStore,
                       LoadTestRunner loadTestRunner,
                       TestReportRepository reportRepository,
-                      RunSampleRepository sampleRepository) {
+                      RunSampleRepository sampleRepository,
+                      TargetValidator targetValidator) {
         this.testDefinitionRepository = testDefinitionRepository;
         this.testRunRepository = testRunRepository;
         this.runtimeStore = runtimeStore;
         this.loadTestRunner = loadTestRunner;
         this.reportRepository = reportRepository;
         this.sampleRepository = sampleRepository;
+        this.targetValidator = targetValidator;
     }
 
     @Override
     public UUID start(UUID testId) {
         TestDefinition def = testDefinitionRepository.findById(testId)
                 .orElseThrow(() -> new IllegalArgumentException("TestDefinition not found: " + testId));
+        targetValidator.validateOrThrow(def.url());
 
         UUID runId = UUID.randomUUID();
 
@@ -57,7 +62,6 @@ public class RunService implements RunUseCase {
         return runId;
     }
 
-    // 실행 중 메트릭을 1초마다 스냅샷으로 저장
     private void startSampling(UUID runId) {
         samplingTasks.computeIfAbsent(runId, id ->
                 sampler.scheduleAtFixedRate(() -> {
@@ -74,13 +78,11 @@ public class RunService implements RunUseCase {
         );
     }
 
-    // 샘플링 작업 중단
     private void stopSampling(UUID runId) {
         ScheduledFuture<?> f = samplingTasks.remove(runId);
         if (f != null) f.cancel(false);
     }
 
-    // 테스트가 정상적으로 종료되었을 때
     private void finishRunDone(UUID runId) {
         Optional<TestRun> opt = testRunRepository.findById(runId);
         if (opt.isEmpty()) {
@@ -91,7 +93,6 @@ public class RunService implements RunUseCase {
 
         TestRun cur = opt.get();
 
-        // 이미 stopped 등으로 종료된 경우
         if (cur.status() != TestRun.Status.RUNNING) {
             persistFinalReportIfPresent(runId);
             stopSampling(runId);
@@ -99,7 +100,6 @@ public class RunService implements RunUseCase {
             return;
         }
 
-        // 최종 리포트 저장
         persistFinalReportIfPresent(runId);
 
         TestRun done = new TestRun(
@@ -115,7 +115,6 @@ public class RunService implements RunUseCase {
         cleanupRuntime(runId);
     }
 
-    // 최종 메트릭 리포트 저장
     private void persistFinalReportIfPresent(UUID runId) {
         runtimeStore.get(runId).ifPresent(rt -> {
             TestReport finalReport = rt.aggregator().snapshot();
@@ -123,7 +122,6 @@ public class RunService implements RunUseCase {
         });
     }
 
-    // 실행 중 런타임 정리
     private void cleanupRuntime(UUID runId) {
         runtimeStore.get(runId).ifPresent(rt -> {
             rt.stopNow();
@@ -132,28 +130,24 @@ public class RunService implements RunUseCase {
         runtimeStore.remove(runId);
     }
 
-    // 테스트 실행 상태 조회
     @Override
     public TestRun getStatus(UUID runId) {
         return testRunRepository.findById(runId)
                 .orElseThrow(() -> new IllegalArgumentException("TestRun not found: " + runId));
     }
 
-    // 테스트 수동 중단
     @Override
     public void stop(UUID runId) {
         TestRun run = testRunRepository.findById(runId)
                 .orElseThrow(() -> new IllegalArgumentException("TestRun not found: " + runId));
 
         if (run.status() != TestRun.Status.RUNNING) return;
-        // 중단 직전 메트릭 저장 후 중단
         runtimeStore.get(runId).ifPresent(rt -> {
             reportRepository.save(runId, rt.aggregator().snapshot());
             rt.stopNow();
             rt.executor().shutdownNow();
         });
 
-        // 멈춤 상태로 변경
         TestRun stopped = new TestRun(
                 run.runId(),
                 run.testId(),
@@ -167,7 +161,6 @@ public class RunService implements RunUseCase {
         runtimeStore.remove(runId);
     }
 
-    // 테스트 리포트 조회
     @Override
     public TestReport getReport(UUID runId) {
         return runtimeStore.get(runId)
@@ -177,7 +170,6 @@ public class RunService implements RunUseCase {
                 );
     }
 
-    // UI용 시계열 메트릭 조회
     @Override
     public List<RunSample> getTimeSeries(UUID runId) {
         return sampleRepository.findByRunId(runId);
